@@ -1,25 +1,44 @@
-import { Field, SmartContract, state, State, method } from 'o1js';
+import {
+  Field,
+  SmartContract,
+  state,
+  State,
+  method,
+  Experimental,
+  Provable,
+} from 'o1js';
 
-/**
- * Basic Example
- * See https://docs.minaprotocol.com/zkapps for more info.
- *
- * The Add contract initializes the state variable 'num' to be a Field(1) value by default when deployed.
- * When the 'update' method is called, the Add contract adds Field(2) to its 'num' contract state.
- *
- * This file is safe to delete and replace with your own contract.
- */
+const { BatchReducer } = Experimental;
+
+export const batchReducer = new BatchReducer({
+  actionType: Field,
+
+  batchSize: 2,
+});
+
+class Batch extends batchReducer.Batch {}
+class BatchProof extends batchReducer.BatchProof {}
+
 export class Add extends SmartContract {
-  @state(Field) num = State<Field>();
+  @state(Field) totalSum = State<Field>();
 
-  init() {
-    super.init();
-    this.num.set(Field(1));
+  // Batch reducer related
+  @state(Field)
+  actionState = State(BatchReducer.initialActionState);
+  @state(Field)
+  actionStack = State(BatchReducer.initialActionStack);
+
+  @method async add(value: Field) {
+    value.assertGreaterThan(Field(0));
+    batchReducer.dispatch(value);
   }
 
-  @method async update() {
-    const currentState = this.num.getAndRequireEquals();
-    const newState = currentState.add(2);
-    this.num.set(newState);
+  @method async batchReduce(batch: Batch, proof: BatchProof) {
+    let curTotal = this.totalSum.getAndRequireEquals();
+    batchReducer.processBatch({ batch, proof }, (number, isDummy) => {
+      curTotal = Provable.if(isDummy, curTotal, curTotal.add(number));
+    });
+
+    this.totalSum.set(curTotal);
   }
 }
